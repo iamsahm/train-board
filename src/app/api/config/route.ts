@@ -32,7 +32,11 @@ export async function GET() {
     const stationsWithIds = await Promise.all(
       stations.map(async (station) => {
         try {
-          const searchUrl = `${process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'}/api/stations/search?q=${encodeURIComponent(station.name)}&mode=${station.mode}`;
+          // Build the absolute URL for the current domain
+          const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+          const host = process.env.NODE_ENV === 'development' ? 'localhost:3000' : 
+                      process.env.VERCEL_URL || 'train-board-ks3l.vercel.app';
+          const searchUrl = `${protocol}://${host}/api/stations/search?q=${encodeURIComponent(station.name)}&mode=${station.mode}`;
           
           const response = await fetch(searchUrl);
           if (response.ok) {
