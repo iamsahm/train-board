@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { searchStations } from '@/services/stationSearch';
 
 interface StationConfig {
   name: string;
@@ -28,25 +29,16 @@ export async function GET() {
       stationIndex++;
     }
 
-    // For each station, fetch its ID using the search API
+    // For each station, fetch its ID using the search service
     const stationsWithIds = await Promise.all(
       stations.map(async (station) => {
         try {
-          // Build the absolute URL for the current domain
-          const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-          const host = process.env.NODE_ENV === 'development' ? 'localhost:3000' : 
-                      process.env.VERCEL_URL || 'train-board-ks3l.vercel.app';
-          const searchUrl = `${protocol}://${host}/api/stations/search?q=${encodeURIComponent(station.name)}&mode=${station.mode}`;
-          
-          const response = await fetch(searchUrl);
-          if (response.ok) {
-            const results = await response.json();
-            if (results.length > 0) {
-              return {
-                ...station,
-                id: results[0].id
-              };
-            }
+          const results = await searchStations(station.name, station.mode);
+          if (results.length > 0) {
+            return {
+              ...station,
+              id: results[0].id
+            };
           }
           
           console.warn(`Could not find ID for station: ${station.name}`);
