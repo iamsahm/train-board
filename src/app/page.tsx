@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { REFRESH_INTERVAL } from "./constants";
 import { DepartureBoard } from "@/components/DepartureBoard";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface Departure {
   time: string;
@@ -31,10 +32,14 @@ interface TflDeparture {
 }
 
 export default function Home() {
+  const theme = useTheme();
   const [stationBoards, setStationBoards] = useState<StationBoard[]>([]);
   const [stationConfigs, setStationConfigs] = useState<StationConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(
+    REFRESH_INTERVAL / 1000
+  );
 
   const fetchStationConfigs = async () => {
     try {
@@ -55,8 +60,17 @@ export default function Home() {
       setLoading(true);
       setError(null);
 
-      const configsToUse = configs || stationConfigs;
-      if (configsToUse.length === 0) {
+      // Use provided configs, or fetch them if not already in state
+      let configsToUse = configs;
+      if (!configsToUse) {
+        if (stationConfigs.length > 0) {
+          configsToUse = stationConfigs;
+        } else {
+          configsToUse = await fetchStationConfigs();
+        }
+      }
+
+      if (!configsToUse || configsToUse.length === 0) {
         setError("No stations configured");
         return;
       }
@@ -105,6 +119,7 @@ export default function Home() {
       );
 
       setStationBoards(boards.filter(Boolean) as StationBoard[]);
+      setSecondsUntilRefresh(REFRESH_INTERVAL / 1000); // Reset countdown after successful fetch
     } catch (err) {
       setError("Failed to fetch departure information");
       console.error("Error fetching departures:", err);
@@ -123,20 +138,36 @@ export default function Home() {
 
     initializeApp();
     const interval = setInterval(() => {
-      if (stationConfigs.length > 0) {
-        fetchDepartures();
-      }
+      fetchDepartures();
     }, REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Countdown timer effect
+  useEffect(() => {
+    const countdownInterval = setInterval(() => {
+      setSecondsUntilRefresh((prev) => {
+        if (prev <= 1) {
+          return REFRESH_INTERVAL / 1000; // Reset when it hits 0
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(countdownInterval);
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-900 p-4 relative">
       {loading && (
-        <div className="fixed top-4 left-4 z-50">
-          <div className="bg-black/70 text-yellow-400 px-3 py-2 rounded-lg border border-yellow-400/30 flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></div>
+        <div className="fixed top-4 left-4 z-[9999]">
+          <div
+            className={`${theme.background} ${theme.text} px-3 py-2 rounded-lg border ${theme.border} flex items-center gap-2`}
+          >
+            <div
+              className={`w-4 h-4 border-2 ${theme.border} border-t-transparent rounded-full animate-spin`}
+            ></div>
             <span className="text-sm font-mono">Loading...</span>
           </div>
         </div>
@@ -157,8 +188,11 @@ export default function Home() {
 
         {stationBoards.length > 0 && (
           <div className="text-center text-slate-400 text-sm">
-            Updates every 30 seconds • DLR data from TfL • Rail data pending
-            Darwin API approval
+            Next update in{" "}
+            <span className="inline-block w-4 text-center font-mono">
+              {secondsUntilRefresh}
+            </span>
+            s • DLR data from TfL • Rail data pending Darwin API approval
           </div>
         )}
       </div>

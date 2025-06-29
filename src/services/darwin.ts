@@ -54,7 +54,6 @@ export class DarwinService {
     });
 
     if (!response.ok) {
-      console.log(response, response.status, response.statusText);
       throw new Error(`Darwin API error: ${response.status}`);
     }
 
