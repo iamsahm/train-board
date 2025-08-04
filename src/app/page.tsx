@@ -19,8 +19,9 @@ interface StationBoard {
 
 interface StationConfig {
   name: string;
-  mode: string;
+  modes: string[];
   id?: string;
+  crs?: string;
 }
 
 interface TflDeparture {
@@ -29,6 +30,18 @@ interface TflDeparture {
   platformName: string;
   timeToStation: number;
   lineName: string;
+}
+
+interface DarwinService {
+  std: string;
+  etd: string;
+  platform?: string;
+  operator: string;
+  operatorCode: string;
+  destination: Array<{
+    locationName: string;
+    crs: string;
+  }>;
 }
 
 export default function Home() {
@@ -47,6 +60,8 @@ export default function Home() {
       if (response.ok) {
         const configs = await response.json();
         setStationConfigs(configs);
+
+        console.log("Fetched station configs:", configs);
         return configs;
       }
     } catch (err) {
@@ -75,48 +90,76 @@ export default function Home() {
         return;
       }
 
-      const boards = await Promise.all(
-        configsToUse.map(async (config) => {
-          if (!config.id) {
+      const fetchModeData = async (config: StationConfig, mode: string) => {
+        try {
+          let url = "";
+          if (mode === "dlr") {
+            if (!config.id) return null;
+            url = `/api/departures?stationId=${config.id}&type=dlr`;
+          } else if (mode === "rail") {
+            if (!config.crs) return null;
+            url = `/api/departures?stationCrs=${config.crs}&type=rail`;
+          } else {
             return null;
           }
 
-          try {
-            const response = await fetch(
-              `/api/departures?stationId=${config.id}&type=${config.mode}`
-            );
+          const response = await fetch(url);
+          if (!response.ok) return null;
 
-            if (response.ok) {
-              const data = await response.json();
-              return {
-                stationName: data.stationName,
-                departures: data.departures
-                  .slice(0, 8)
-                  .map((dep: TflDeparture) => ({
-                    time: new Date(dep.expectedArrival).toLocaleTimeString(
-                      "en-GB",
-                      {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }
-                    ),
-                    destination: dep.destinationName,
-                    platform: dep.platformName || config.mode.toUpperCase(),
-                    status:
-                      dep.timeToStation < 60
-                        ? "Due"
-                        : `${Math.floor(dep.timeToStation / 60)} min`,
-                    line: dep.lineName,
-                  })),
-              };
-            }
-          } catch (err) {
-            console.error(`Error fetching departures for ${config.name}:`, err);
+          const data = await response.json();
+
+          // Handle TfL format
+          if (mode === "dlr" && data.departures) {
+            return {
+              stationName: `${data.stationName} (${mode.toUpperCase()})`,
+              departures: data.departures
+                .slice(0, 8)
+                .map((dep: TflDeparture) => ({
+                  time: new Date(dep.expectedArrival).toLocaleTimeString(
+                    "en-GB",
+                    {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }
+                  ),
+                  destination: dep.destinationName,
+                  platform: dep.platformName || mode.toUpperCase(),
+                  status:
+                    dep.timeToStation < 60
+                      ? "Due"
+                      : `${Math.floor(dep.timeToStation / 60)} min`,
+                  line: dep.lineName,
+                })),
+            };
           }
 
-          return null;
-        })
+          // Handle Darwin format
+          if (mode === "rail" && data.services) {
+            return {
+              stationName: `${data.locationName} (${mode.toUpperCase()})`,
+              departures: data.services.slice(0, 8).map((service: DarwinService) => ({
+                time: service.std,
+                destination: service.destination[0]?.locationName || "Unknown",
+                platform: service.platform,
+                status: service.etd,
+                line: service.operator,
+              })),
+            };
+          }
+        } catch (err) {
+          console.error(
+            `Error fetching ${mode} departures for ${config.name}:`,
+            err
+          );
+        }
+        return null;
+      };
+
+      const allRequests = configsToUse.flatMap((config) =>
+        config.modes.map((mode) => fetchModeData(config, mode))
       );
+
+      const boards = await Promise.all(allRequests);
 
       setStationBoards(boards.filter(Boolean) as StationBoard[]);
       setSecondsUntilRefresh(REFRESH_INTERVAL / 1000); // Reset countdown after successful fetch
@@ -181,6 +224,7 @@ export default function Home() {
         )}
 
         <div className="space-y-6">
+          {/*  */}
           {stationBoards.map((board, index) => (
             <DepartureBoard key={index} board={board} />
           ))}

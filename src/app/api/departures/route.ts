@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DarwinService } from '@/services/darwin';
+import { getDepartureBoard } from '@/services/darwin';
 import { TflService } from '@/services/tfl';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const stationCode = searchParams.get('station');
+  const stationCrs = searchParams.get('stationCrs');
   const stationId = searchParams.get('stationId'); // TfL station ID
   const type = searchParams.get('type') || 'rail'; // 'rail' or 'dlr'
   const numRows = parseInt(searchParams.get('rows') || '10');
@@ -29,21 +29,25 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Handle rail requests (existing Darwin logic)
-  if (!stationCode) {
-    return NextResponse.json({ error: 'Station code is required' }, { status: 400 });
+  // Handle rail requests (Darwin API)
+  if (type === 'rail') {
+    if (!stationCrs) {
+      return NextResponse.json({ error: 'Station CRS code is required' }, { status: 400 });
+    }
+
+    try {
+      const departureBoard = await getDepartureBoard(stationCrs, numRows);
+      
+      return NextResponse.json(departureBoard);
+    } catch (error) {
+      console.error('Darwin API error:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch departure information' }, 
+        { status: 500 }
+      );
+    }
   }
 
-  try {
-    const darwinService = new DarwinService();
-    const departureBoard = await darwinService.getDepartureBoard(stationCode, numRows);
-    
-    return NextResponse.json(departureBoard);
-  } catch (error) {
-    console.error('Darwin API error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch departure information' }, 
-      { status: 500 }
-    );
-  }
+  // Unknown type
+  return NextResponse.json({ error: 'Invalid type parameter' }, { status: 400 });
 }

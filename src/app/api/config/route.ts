@@ -3,8 +3,9 @@ import { searchStations } from '@/services/stationSearch';
 
 interface StationConfig {
   name: string;
-  mode: string;
+  modes: string[];
   id?: string;
+  crs?: string;
 }
 
 export async function GET() {
@@ -16,36 +17,58 @@ export async function GET() {
     while (true) {
       const stationName = process.env[`STATION_${stationIndex}_NAME`];
       const stationMode = process.env[`STATION_${stationIndex}_MODE`];
+      const stationCrs = process.env[`STATION_${stationIndex}_CRS`];
       
       if (!stationName || !stationMode) {
         break; // No more stations configured
       }
       
+      // Collect all modes for this station
+      const modes = [stationMode];
+      let modeIndex = 2;
+      while (true) {
+        const additionalMode = process.env[`STATION_${stationIndex}_MODE_${modeIndex}`];
+        if (!additionalMode) break;
+        modes.push(additionalMode);
+        modeIndex++;
+      }
+      
       stations.push({
         name: stationName,
-        mode: stationMode
+        modes,
+        ...(stationCrs && { crs: stationCrs })
       });
       
       stationIndex++;
     }
 
-    // For each station, fetch its ID using the search service
+    // For each station, fetch required IDs based on modes
     const stationsWithIds = await Promise.all(
       stations.map(async (station) => {
+        const updatedStation = { ...station };
+        
         try {
-          const results = await searchStations(station.name, station.mode);
-          if (results.length > 0) {
-            return {
-              ...station,
-              id: results[0].id
-            };
+          // For stations with DLR mode, search for TfL ID
+          if (station.modes.includes('dlr')) {
+            const results = await searchStations(station.name, 'dlr');
+            if (results.length > 0) {
+              updatedStation.id = results[0].id;
+            } else {
+              console.warn(`Could not find TfL ID for DLR station: ${station.name}`);
+            }
           }
           
-          console.warn(`Could not find ID for station: ${station.name}`);
-          return station;
+          // For stations with rail mode, ensure CRS code is present
+          if (station.modes.includes('rail')) {
+            if (!station.crs) {
+              console.warn(`CRS code missing for rail station: ${station.name}`);
+            }
+          }
+          
+          return updatedStation;
         } catch (error) {
-          console.error(`Error fetching ID for ${station.name}:`, error);
-          return station;
+          console.error(`Error processing station ${station.name}:`, error);
+          return updatedStation;
         }
       })
     );
